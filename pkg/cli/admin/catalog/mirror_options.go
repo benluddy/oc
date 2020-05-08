@@ -14,6 +14,7 @@ type IndexImageMirrorerOptions struct {
 	Source, Dest      imagesource.TypedImageReference
 	ManifestDir       string
 	MaxPathComponents int
+	DefaultSourceTag  string
 }
 
 func (o *IndexImageMirrorerOptions) Validate() error {
@@ -120,5 +121,11 @@ func WithManifestDir(d string) ImageIndexMirrorOption {
 func WithMaxPathComponents(i int) ImageIndexMirrorOption {
 	return func(o *IndexImageMirrorerOptions) {
 		o.MaxPathComponents = i
+	}
+}
+
+func WithDefaultSourceTag(t string) ImageIndexMirrorOption {
+	return func(o *IndexImageMirrorerOptions) {
+		o.DefaultSourceTag = t
 	}
 }

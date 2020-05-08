@@ -1,10 +1,11 @@
 package catalog
 
 import (
-	"github.com/openshift/library-go/pkg/image/reference"
 	"reflect"
+	"strings"
 	"testing"
 
+	"github.com/openshift/library-go/pkg/image/reference"
 	"github.com/openshift/oc/pkg/cli/image/imagesource"
 )
 
@@ -230,15 +231,16 @@ func mustParseRef(t *testing.T, ref string) reference.DockerImageReference {
 
 func TestMappingForImages(t *testing.T) {
 	type args struct {
-		images        map[string]struct{}
-		dest          imagesource.TypedImageReference
-		maxComponents int
+		images           map[string]struct{}
+		dest             imagesource.TypedImageReference
+		maxComponents    int
+		defaultSourceTag string
 	}
 	tests := []struct {
 		name        string
 		args        args
 		wantMapping map[string]Target
-		wantErrs    []error
+		wantErrs    func(*testing.T, []error)
 	}{
 		{
 			name: "tagged image to registry",
@@ -276,6 +278,51 @@ func TestMappingForImages(t *testing.T) {
 					WithDigest: "",
 					WithTag:    "quay.io/my/image:4f9407ca",
 				},
+			},
+		},
+		{
+			name: "default-tagged image to registry",
+			args: args{
+				images: map[string]struct{}{
+					"docker.io/my/image": {},
+				},
+				dest: imagesource.TypedImageReference{
+					Type: imagesource.DestinationRegistry,
+					Ref:  mustParseRef(t, "quay.io"),
+				},
+				maxComponents:    2,
+				defaultSourceTag: "default",
+			},
+			wantMapping: map[string]Target{
+				"docker.io/my/image:default": {
+					WithDigest: "",
+					WithTag:    "quay.io/my/image:default",
+				},
+			},
+		},
+		{
+			name: "default-tagged image to registry with invalid default",
+			args: args{
+				images: map[string]struct{}{
+					"docker.io/my/image": {},
+				},
+				dest: imagesource.TypedImageReference{
+					Type: imagesource.DestinationRegistry,
+					Ref:  mustParseRef(t, "quay.io"),
+				},
+				maxComponents:    2,
+				defaultSourceTag: ":",
+			},
+			wantMapping: map[string]Target{},
+			wantErrs: func(t *testing.T, errs []error) {
+				if len(errs) != 1 {
+					t.Errorf("expected 1 error, got %d", len(errs))
+					return
+				}
+				const prefix = "failed to apply default tag"
+				if !strings.HasPrefix(errs[0].Error(), prefix) {
+					t.Errorf("expected error with prefix %q, got: %s", prefix, errs[0].Error())
+				}
 			},
 		},
 		{
@@ -528,12 +575,12 @@ func TestMappingForImages(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotMapping, gotErrs := mappingForImages(tt.args.images, tt.args.dest, tt.args.maxComponents)
+			gotMapping, gotErrs := mappingForImages(tt.args.images, tt.args.dest, tt.args.maxComponents, tt.args.defaultSourceTag)
 			if !reflect.DeepEqual(gotMapping, tt.wantMapping) {
 				t.Errorf("mappingForImages() gotMapping = %v, want %v", gotMapping, tt.wantMapping)
 			}
-			if !reflect.DeepEqual(gotErrs, tt.wantErrs) {
-				t.Errorf("mappingForImages() gotErrs = %v, want %v", gotErrs, tt.wantErrs)
+			if tt.wantErrs != nil {
+				tt.wantErrs(t, gotErrs)
 			}
 		})
 	}

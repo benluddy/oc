@@ -2,13 +2,15 @@ package catalog
 
 import (
 	"fmt"
-	"github.com/openshift/oc/pkg/cli/image/imagesource"
 	"hash/fnv"
 	"strings"
 
 	"github.com/alicebob/sqlittle"
 	"github.com/docker/distribution/reference"
+
 	"k8s.io/apimachinery/pkg/util/errors"
+
+	"github.com/openshift/oc/pkg/cli/image/imagesource"
 )
 
 type Mirrorer interface {
@@ -52,6 +54,7 @@ type IndexImageMirrorer struct {
 	// options
 	Source, Dest      imagesource.TypedImageReference
 	MaxPathComponents int
+	DefaultSourceTag  string
 }
 
 var _ Mirrorer = &IndexImageMirrorer{}
@@ -71,6 +74,7 @@ func NewIndexImageMirror(options ...ImageIndexMirrorOption) (*IndexImageMirrorer
 		Source:            config.Source,
 		Dest:              config.Dest,
 		MaxPathComponents: config.MaxPathComponents,
+		DefaultSourceTag:  config.DefaultSourceTag,
 	}, nil
 }
 
@@ -86,7 +90,7 @@ func (b *IndexImageMirrorer) Mirror() (map[string]Target, error) {
 	}
 
 	var errs = make([]error, 0)
-	mapping, mapErrs := mappingForImages(images, b.Dest, b.MaxPathComponents)
+	mapping, mapErrs := mappingForImages(images, b.Dest, b.MaxPathComponents, b.DefaultSourceTag)
 	if len(mapErrs) > 0 {
 		errs = append(errs, mapErrs...)
 	}
@@ -130,7 +134,7 @@ func imagesFromDb(file string) (map[string]struct{}, error) {
 	return images, nil
 }
 
-func mappingForImages(images map[string]struct{}, dest imagesource.TypedImageReference, maxComponents int) (mapping map[string]Target, errs []error) {
+func mappingForImages(images map[string]struct{}, dest imagesource.TypedImageReference, maxComponents int, defaultTag string) (mapping map[string]Target, errs []error) {
 	domain := dest.Ref.Registry
 
 	// handle bare repository targets
@@ -155,6 +159,14 @@ func mappingForImages(images map[string]struct{}, dest imagesource.TypedImageRef
 		if err != nil {
 			errs = append(errs, fmt.Errorf("couldn't parse image for mirroring (%s), skipping mirror: %v", img, err))
 			continue
+		}
+
+		if defaultTag != "" {
+			ref, err = reference.WithTag(ref, defaultTag)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("failed to apply default tag %q to %q: %v", defaultTag, ref, err))
+				continue
+			}
 		}
 
 		components := append(destComponents, strings.Split(reference.Path(ref), "/")...)

@@ -17,6 +17,7 @@ import (
 	"k8s.io/kubectl/pkg/util/templates"
 	"sigs.k8s.io/yaml"
 
+	imagev1 "github.com/openshift/api/image/v1"
 	operatorv1alpha1 "github.com/openshift/api/operator/v1alpha1"
 	imgextract "github.com/openshift/oc/pkg/cli/image/extract"
 	"github.com/openshift/oc/pkg/cli/image/imagesource"
@@ -64,9 +65,10 @@ type MirrorCatalogOptions struct {
 	*IndexImageMirrorerOptions
 	genericclioptions.IOStreams
 
-	DryRun       bool
-	ManifestOnly bool
-	DatabasePath string
+	DryRun        bool
+	ManifestOnly  bool
+	UseDefaultTag bool
+	DatabasePath  string
 
 	FromFileDir string
 	FileDir     string
@@ -111,6 +113,7 @@ func NewMirrorCatalog(streams genericclioptions.IOStreams) *cobra.Command {
 	flags.StringVar(&o.DatabasePath, "path", "", "Specify an in-container to local path mapping for the database.")
 	flags.BoolVar(&o.DryRun, "dry-run", o.DryRun, "Print the actions that would be taken and exit without writing to the destinations.")
 	flags.BoolVar(&o.ManifestOnly, "manifests-only", o.ManifestOnly, "Calculate the manifests required for mirroring, but do not actually mirror image content.")
+	flags.BoolVar(&o.UseDefaultTag, "use-default-tag", o.UseDefaultTag, fmt.Sprintf("Interpret source image references that do not specify either a tag or a digest as having tag \"%s\".", imagev1.DefaultImageTag))
 	flags.StringVar(&o.FileDir, "dir", o.FileDir, "The directory on disk that file:// images will be copied under.")
 	flags.StringVar(&o.FromFileDir, "from-dir", o.FromFileDir, "The directory on disk that file:// images will be read from. Overrides --dir")
 	flags.IntVar(&o.MaxPathComponents, "max-components", 2, "The maximum number of path components allowed in a destination mapping. Example: `quay.io/org/repo` has two path components.")
@@ -244,10 +247,15 @@ func (o *MirrorCatalogOptions) Validate() error {
 }
 
 func (o *MirrorCatalogOptions) Run() error {
-	indexMirrorer, err := NewIndexImageMirror(o.IndexImageMirrorerOptions.ToOption(),
+	opts := []ImageIndexMirrorOption{
+		o.IndexImageMirrorerOptions.ToOption(),
 		WithSource(o.SourceRef),
 		WithDest(o.DestRef),
-	)
+	}
+	if o.UseDefaultTag {
+		opts = append(opts, WithDefaultSourceTag(imagev1.DefaultImageTag))
+	}
+	indexMirrorer, err := NewIndexImageMirror(opts...)
 	if err != nil {
 		return err
 	}
